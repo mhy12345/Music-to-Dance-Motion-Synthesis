@@ -1,10 +1,17 @@
 import numpy as np
+import os
 import cv2
 import json
+import logging
+from moviepy.editor import *
+logger = logging.getLogger(__name__)
 
 CANVAS_SIZE = (400,600,3)
+videoWriter = None
 
-def draw(frames):
+def draw(frames, export_to_file=False):
+    global CANVAS_SIZE
+    global videoWriter
     frames[:,:,0] += CANVAS_SIZE[0]//2
     frames[:,:,1] += CANVAS_SIZE[1]//2
     for i in range(len(frames)):
@@ -41,11 +48,46 @@ def draw(frames):
         for j in range(23):
             cv2.putText(cvs,str(j),(int(frame[j][0]),int(frame[j][1])),cv2.FONT_HERSHEY_SIMPLEX,.4, (155, 0, 255), 1, False)
             '''
-        cv2.imshow('canvas',np.flip(cvs,0))
-        cv2.waitKey(0)
+        if export_to_file:
+            img8 = (np.flip(cvs,0)*(2**8-1)).astype(np.uint8)
+            videoWriter.write(img8)
+        else:
+            cv2.imshow('canvas',np.flip(cvs,0))
+            cv2.waitKey(0)
     pass
 
+def exportMP3(name,speed=25):
+    global videoWriter
+    with open('../%s/config.json'%name) as fin:
+        config = json.load(fin)
+    print(config)
+    with open('../%s/skeletons.json'%name,'r') as fin:
+        data = np.array(json.load(fin)['skeletons'])
+    fourcc = cv2.VideoWriter_fourcc('I','4','2','0') #opencv3.0
+    videoWriter = cv2.VideoWriter('exports/'+name+'.avi', fourcc, speed, (600, 400))
+    draw(data,export_to_file=True)
+    videoWriter.release()
+    os.system('ffmpeg -i exports/%s.avi exports/%s.mp4'%(name,name))
+    os.system('rm exports/%s.avi'%name)
+
+    movie_dance = VideoFileClip('./exports/%s.mp4'%name,audio=False)
+    movie_music = AudioFileClip('../'+name+'/audio.mp3').subclip(config['start_position']/25, config['end_position']/25)
+    movie_dance = movie_dance.set_audio(movie_music)
+    movie_dance.write_videofile("./exports/%s.avi"%name,fps=25,codec='libx264')
+
+    os.system('rm exports/%s.mp4'%name)
+    os.system('ffmpeg -i exports/%s.avi exports/%s.mp4'%(name,name))
+    os.system('rm exports/%s.avi'%name)
+
+    logger.info('Finish <%s>'%name)
+
 if __name__ == '__main__':
-    with open('../DANCE_C_1/skeletons.json','r') as fin:
-        data = json.load(fin)
-    draw(np.array(data['skeletons']))
+    name = 'DANCE_W_1'
+    import os
+    import re
+    dirs = os.listdir('../')
+    for name in dirs:
+        if name[:5] != 'DANCE':
+            continue
+        print(name)
+        exportMP3(name)
